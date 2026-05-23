@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result};
 use pollster::FutureExt;
 use tracing::{debug, error};
+use wgpu::util::DeviceExt;
 use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
@@ -10,6 +11,8 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
     window::Window,
 };
+
+use crate::util::{VERTICES, Vertex};
 
 #[derive(Debug)]
 pub struct State {
@@ -21,6 +24,8 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
 
     render_pipeline: wgpu::RenderPipeline,
+    vertex_buffer: wgpu::Buffer,
+    n_vertices: u32,
 
     surface_configured: bool,
 }
@@ -28,6 +33,7 @@ pub struct State {
 impl State {
     async fn new(window: Arc<Window>) -> Result<Self> {
         let size = window.inner_size();
+        let n_vertices = VERTICES.len() as u32;
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
@@ -94,7 +100,7 @@ impl State {
         let v_state = wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_main"),
-            buffers: &[],
+            buffers: &[Vertex::desc()],
             compilation_options: Default::default(),
         };
         let f_state = wgpu::FragmentState {
@@ -126,6 +132,13 @@ impl State {
         };
         let render_pipeline = device.create_render_pipeline(&pipeline_desc);
 
+        let vbi_desc = wgpu::util::BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: wgpu::BufferUsages::VERTEX,
+        };
+        let vertex_buffer = device.create_buffer_init(&vbi_desc);
+
         Ok(Self {
             window,
             surface,
@@ -133,6 +146,8 @@ impl State {
             queue,
             config,
             render_pipeline,
+            vertex_buffer,
+            n_vertices,
             surface_configured: false,
         })
     }
@@ -204,7 +219,8 @@ impl State {
         };
         let mut render_pass = encoder.begin_render_pass(&render_pass_desc);
         render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.draw(0..3, 0..1);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.draw(0..self.n_vertices, 0..1);
         drop(render_pass); // to satisfy the borrow checker
 
         self.queue.submit(std::iter::once(encoder.finish()));

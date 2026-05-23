@@ -5,6 +5,7 @@ use winit::event_loop::EventLoop;
 use crate::app::App;
 
 mod app;
+mod util;
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt()
