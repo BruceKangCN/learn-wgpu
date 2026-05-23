@@ -20,6 +20,8 @@ pub struct State {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
 
+    render_pipeline: wgpu::RenderPipeline,
+
     surface_configured: bool,
 }
 
@@ -76,12 +78,61 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
+        let sm_desc = wgpu::ShaderModuleDescriptor {
+            label: Some("Shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+        };
+        let shader = device.create_shader_module(sm_desc);
+
+        let pipeline_layout_desc = wgpu::PipelineLayoutDescriptor {
+            label: Some("Render Pipeline Layout"),
+            bind_group_layouts: &[],
+            immediate_size: 0,
+        };
+        let pipeline_layout = device.create_pipeline_layout(&pipeline_layout_desc);
+
+        let v_state = wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            buffers: &[],
+            compilation_options: Default::default(),
+        };
+        let f_state = wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format: config.format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: Default::default(),
+        };
+        let pipeline_desc = wgpu::RenderPipelineDescriptor {
+            label: Some("Render PipeLine"),
+            layout: Some(&pipeline_layout),
+            vertex: v_state,
+            fragment: Some(f_state),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                polygon_mode: wgpu::PolygonMode::Fill,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview_mask: None,
+            cache: None,
+        };
+        let render_pipeline = device.create_render_pipeline(&pipeline_desc);
+
         Ok(Self {
             window,
             surface,
             device,
             queue,
             config,
+            render_pipeline,
             surface_configured: false,
         })
     }
@@ -151,8 +202,10 @@ impl State {
             })],
             ..Default::default()
         };
-        let _render_pass = encoder.begin_render_pass(&render_pass_desc);
-        drop(_render_pass);
+        let mut render_pass = encoder.begin_render_pass(&render_pass_desc);
+        render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.draw(0..3, 0..1);
+        drop(render_pass); // to satisfy the borrow checker
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output.present();
@@ -168,7 +221,7 @@ impl State {
     }
 
     fn update(&mut self) {
-        // todo!()
+        debug!("TODO: update");
     }
 }
 
