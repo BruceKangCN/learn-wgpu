@@ -149,7 +149,7 @@ impl State {
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            ..wgpu::RenderPassDescriptor::default()
+            ..Default::default()
         };
         let _render_pass = encoder.begin_render_pass(&render_pass_desc);
         drop(_render_pass);
