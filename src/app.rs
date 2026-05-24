@@ -12,21 +12,32 @@ use winit::{
     window::Window,
 };
 
-use crate::util::Vertex;
+use crate::{texture, util::Vertex};
 
 const VERTICES: &[Vertex] = &[
-    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
-    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
-    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
-    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
-    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
+    Vertex {
+        position: [-0.0868241, 0.49240386, 0.0],
+        tex_coords: [0.4131759, 0.99240386],
+    }, // A
+    Vertex {
+        position: [-0.49513406, 0.06958647, 0.0],
+        tex_coords: [0.0048659444, 0.56958647],
+    }, // B
+    Vertex {
+        position: [-0.21918549, -0.44939706, 0.0],
+        tex_coords: [0.28081453, 0.05060294],
+    }, // C
+    Vertex {
+        position: [0.35966998, -0.3473291, 0.0],
+        tex_coords: [0.85967, 0.1526709],
+    }, // D
+    Vertex {
+        position: [0.44147372, 0.2347359, 0.0],
+        tex_coords: [0.9414737, 0.7347359],
+    }, // E
 ];
 
-const INDICES: &[u32] = &[
-    0, 1, 4,
-    1, 2, 4,
-    2, 3, 4,
-];
+const INDICES: &[u32] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
 
 #[derive(Debug)]
 pub struct State {
@@ -41,6 +52,9 @@ pub struct State {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     n_indices: u32,
+    diffuse_bind_group: wgpu::BindGroup,
+    #[allow(unused)]
+    diffuse_texture: texture::Texture,
 
     surface_configured: bool,
 }
@@ -98,6 +112,52 @@ impl State {
             desired_maximum_frame_latency: 2,
         };
 
+        let diffuse_texture = texture::Texture::from_image(
+            &device,
+            &queue,
+            "asset/happy-tree.png",
+            Some("happy tree"),
+        )?;
+
+        let texture_bgl_desc = wgpu::BindGroupLayoutDescriptor {
+            label: Some("texture bind group layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        };
+        let texture_bgl = device.create_bind_group_layout(&texture_bgl_desc);
+
+        let diffuse_bind_group_desc = wgpu::BindGroupDescriptor {
+            label: Some("diffuse bind group"),
+            layout: &texture_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                },
+            ],
+        };
+        let diffuse_bind_group = device.create_bind_group(&diffuse_bind_group_desc);
+
         let sm_desc = wgpu::ShaderModuleDescriptor {
             label: Some("Shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
@@ -106,7 +166,7 @@ impl State {
 
         let pipeline_layout_desc = wgpu::PipelineLayoutDescriptor {
             label: Some("Render Pipeline Layout"),
-            bind_group_layouts: &[],
+            bind_group_layouts: &[Some(&texture_bgl)],
             immediate_size: 0,
         };
         let pipeline_layout = device.create_pipeline_layout(&pipeline_layout_desc);
@@ -171,6 +231,8 @@ impl State {
             vertex_buffer,
             index_buffer,
             n_indices,
+            diffuse_bind_group,
+            diffuse_texture,
             surface_configured: false,
         })
     }
@@ -241,10 +303,14 @@ impl State {
             ..Default::default()
         };
         let mut render_pass = encoder.begin_render_pass(&render_pass_desc);
+
         render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+
         render_pass.draw_indexed(0..self.n_indices, 0, 0..1);
+
         drop(render_pass); // to satisfy the borrow checker
 
         self.queue.submit(std::iter::once(encoder.finish()));
