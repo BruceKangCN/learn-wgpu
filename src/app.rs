@@ -12,7 +12,21 @@ use winit::{
     window::Window,
 };
 
-use crate::util::{VERTICES, Vertex};
+use crate::util::Vertex;
+
+const VERTICES: &[Vertex] = &[
+    Vertex { position: [-0.0868241, 0.49240386, 0.0], color: [0.5, 0.0, 0.5] }, // A
+    Vertex { position: [-0.49513406, 0.06958647, 0.0], color: [0.5, 0.0, 0.5] }, // B
+    Vertex { position: [-0.21918549, -0.44939706, 0.0], color: [0.5, 0.0, 0.5] }, // C
+    Vertex { position: [0.35966998, -0.3473291, 0.0], color: [0.5, 0.0, 0.5] }, // D
+    Vertex { position: [0.44147372, 0.2347359, 0.0], color: [0.5, 0.0, 0.5] }, // E
+];
+
+const INDICES: &[u32] = &[
+    0, 1, 4,
+    1, 2, 4,
+    2, 3, 4,
+];
 
 #[derive(Debug)]
 pub struct State {
@@ -25,7 +39,8 @@ pub struct State {
 
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
-    n_vertices: u32,
+    index_buffer: wgpu::Buffer,
+    n_indices: u32,
 
     surface_configured: bool,
 }
@@ -33,7 +48,6 @@ pub struct State {
 impl State {
     async fn new(window: Arc<Window>) -> Result<Self> {
         let size = window.inner_size();
-        let n_vertices = VERTICES.len() as u32;
 
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
             backends: wgpu::Backends::PRIMARY,
@@ -139,6 +153,14 @@ impl State {
         };
         let vertex_buffer = device.create_buffer_init(&vbi_desc);
 
+        let ibi_desc = wgpu::util::BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: wgpu::BufferUsages::INDEX,
+        };
+        let index_buffer = device.create_buffer_init(&ibi_desc);
+        let n_indices = INDICES.len() as u32;
+
         Ok(Self {
             window,
             surface,
@@ -147,7 +169,8 @@ impl State {
             config,
             render_pipeline,
             vertex_buffer,
-            n_vertices,
+            index_buffer,
+            n_indices,
             surface_configured: false,
         })
     }
@@ -220,7 +243,8 @@ impl State {
         let mut render_pass = encoder.begin_render_pass(&render_pass_desc);
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.draw(0..self.n_vertices, 0..1);
+        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+        render_pass.draw_indexed(0..self.n_indices, 0, 0..1);
         drop(render_pass); // to satisfy the borrow checker
 
         self.queue.submit(std::iter::once(encoder.finish()));
