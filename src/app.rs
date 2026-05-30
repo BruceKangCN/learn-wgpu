@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use cgmath::prelude::*;
 use pollster::FutureExt;
 use tracing::{debug, error};
 use wgpu::util::DeviceExt;
@@ -14,7 +15,7 @@ use winit::{
 
 use crate::{
     texture,
-    util::{Camera, CameraController, CameraUniform, Vertex},
+    util::{Camera, CameraController, CameraUniform, Instance, InstanceRaw, Vertex},
 };
 
 const VERTICES: &[Vertex] = &[
@@ -42,6 +43,13 @@ const VERTICES: &[Vertex] = &[
 
 const INDICES: &[u32] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
 
+const INSTANCES_PER_ROW: u32 = 10;
+const INSTANCE_DISPLACEMENT: cgmath::Vector3<f32> = cgmath::Vector3::new(
+    INSTANCES_PER_ROW as f32 * 0.5,
+    0.0,
+    INSTANCES_PER_ROW as f32 * 0.5,
+);
+
 #[derive(Debug)]
 pub struct State {
     window: Arc<Window>,
@@ -63,6 +71,8 @@ pub struct State {
     camera_buffer: wgpu::Buffer,
     camera_bind_group: wgpu::BindGroup,
     camera_controller: CameraController,
+    instances: Vec<Instance>,
+    instance_buffer: wgpu::Buffer,
 
     surface_configured: bool,
 }
@@ -227,7 +237,7 @@ impl State {
         let v_state = wgpu::VertexState {
             module: &shader,
             entry_point: Some("vs_main"),
-            buffers: &[Vertex::desc()],
+            buffers: &[Vertex::desc(), InstanceRaw::desc()],
             compilation_options: Default::default(),
         };
         let f_state = wgpu::FragmentState {
@@ -276,6 +286,32 @@ impl State {
 
         let camera_controller = CameraController::new(0.2);
 
+        let instances: Vec<_> = (0..INSTANCES_PER_ROW)
+            .flat_map(|z| {
+                (0..INSTANCES_PER_ROW).map(move |x| {
+                    let position =
+                        cgmath::Vector3::new(x as f32, 0.0, z as f32) - INSTANCE_DISPLACEMENT;
+                    let rotation = if position.is_zero() {
+                        // this is needed so an object at (0, 0, 0) won't get scaled to zero
+                        // as quaternions can affect scale if they're not created correctly
+                        cgmath::Quaternion::from_axis_angle(
+                            cgmath::Vector3::unit_z(),
+                            cgmath::Rad(0.0),
+                        )
+                    } else {
+                        cgmath::Quaternion::from_axis_angle(position.normalize(), cgmath::Deg(45.0))
+                    };
+                    Instance { position, rotation }
+                })
+            })
+            .collect();
+        let instance_data: Vec<_> = instances.iter().map(Instance::to_raw_data).collect();
+        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("instance buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
         Ok(Self {
             window,
             surface,
@@ -293,6 +329,8 @@ impl State {
             camera_buffer,
             camera_bind_group,
             camera_controller,
+            instances,
+            instance_buffer,
             surface_configured: false,
         })
     }
@@ -368,9 +406,10 @@ impl State {
         render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
         render_pass.set_bind_group(1, &self.camera_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
 
-        render_pass.draw_indexed(0..self.n_indices, 0, 0..1);
+        render_pass.draw_indexed(0..self.n_indices, 0, 0..self.instances.len() as _);
 
         drop(render_pass); // to satisfy the borrow checker
 
